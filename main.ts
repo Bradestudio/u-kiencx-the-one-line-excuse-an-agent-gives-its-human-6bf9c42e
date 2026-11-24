@@ -34,7 +34,10 @@ const entry =
 // text, and must stay a single line. Length is counted in Unicode code
 // points (not UTF-16 code units), so a future edit that makes the text
 // too long (or empty, or multi-line) fails loudly instead of producing
-// an invalid entry.
+// an invalid entry. The gate is deliberately stricter than the minimum:
+// no leading/trailing whitespace and no doubled spaces, so a sloppy
+// edit cannot silently ship padding the judge would read as part of
+// the line.
 function validateEntry(text: string): number {
   const length = Array.from(text).length;
   if (length < 1 || length > 160) {
@@ -43,18 +46,31 @@ function validateEntry(text: string): number {
   if (text.trim().length === 0) {
     throw new Error("entry must not be blank");
   }
+  if (text !== text.trim()) {
+    throw new Error("entry must not have leading or trailing whitespace");
+  }
+  if (text.includes("  ")) {
+    throw new Error("entry must not contain doubled spaces");
+  }
   if (text.includes("\n") || text.includes("\r")) {
     throw new Error("entry must be a single line");
   }
   return length;
 }
 
+// Atomic write helper: write to a temp file in the same directory and
+// rename over the target, so /output/entry.txt is never left
+// half-written if the process is interrupted mid-write.
+function writeEntryAtomically(path: string, text: string): void {
+  mkdirSync("/output", { recursive: true });
+  const tmpPath = "/output/.entry.txt.tmp";
+  writeFileSync(tmpPath, text, "utf8");
+  renameSync(tmpPath, path);
+}
+
 validateEntry(entry);
 
-mkdirSync("/output", { recursive: true });
-const tmpPath = "/output/.entry.txt.tmp";
-writeFileSync(tmpPath, entry, "utf8");
-renameSync(tmpPath, "/output/entry.txt");
+writeEntryAtomically("/output/entry.txt", entry);
 
 // Read-back verification: the file on disk must be byte-for-byte the
 // entry we validated above. If the write was truncated or re-encoded,
